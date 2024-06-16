@@ -7,7 +7,7 @@ from matplotlib.colors import LogNorm
 from utils import KE_2D_matrix
 
 class FEM_TopOpt_Solver:
-    def __init__(self, nx: int, ny: int, volfrac: float, penal: float, rho_min: float, E: float, nu: float):
+    def __init__(self, nx: int, ny: int, volfrac: float, penal: float, rho_min: float, filter_radius: float, E: float, nu: float):
         self.nx = nx
         self.ny = ny
         self.volfrac = volfrac
@@ -17,6 +17,8 @@ class FEM_TopOpt_Solver:
         self.nu = nu
 
         self.x = self.volfrac * np.ones((self.ny, self.nx)) # Density distribution
+
+        self.filter_radius = 1.5
 
         self.KE = KE_2D_matrix(self.E, self.nu)
 
@@ -117,9 +119,6 @@ class FEM_TopOpt_Solver:
         #     [2 * load_point_2, 2 * load_point_2 + 1],
         # )
 
-        alldofs = np.arange(2 * (self.ny + 1) * (self.nx + 1))
-        freedofs = np.setdiff1d(alldofs, fixeddofs)
-
         # Solving
         K = K.tocsc()
         U[freedofs, 0] = spla.spsolve(K[freedofs, :][:, freedofs], F[freedofs, 0])
@@ -160,9 +159,9 @@ class FEM_TopOpt_Solver:
         for j in range(self.ny):
             for i in range(self.nx):
                 sum_ = 0.0
-                for l in range(max(j - int(np.floor(self.rho_min)), 0), min(j + int(np.floor(self.rho_min)) + 1, self.ny)):
-                    for k in range(max(i - int(np.floor(self.rho_min)), 0), min(i + int(np.floor(self.rho_min)) + 1, self.nx)):
-                        fac = self.rho_min - np.sqrt((i - k) ** 2 + (j - l) ** 2)
+                for l in range(max(j - int(np.floor(self.filter_radius)), 0), min(j + int(np.floor(self.filter_radius)) + 1, self.ny)):
+                    for k in range(max(i - int(np.floor(self.filter_radius)), 0), min(i + int(np.floor(self.filter_radius)) + 1, self.nx)):
+                        fac = self.filter_radius - np.sqrt((i - k) ** 2 + (j - l) ** 2)
                         sum_ += max(0, fac)
                         filtered_sensitivity[j, i] += max(0, fac) * self.x[l, k] * sensitivity[l, k]
                 filtered_sensitivity[j, i] /= self.x[j, i] * sum_
@@ -177,7 +176,7 @@ class FEM_TopOpt_Solver:
 
         while (l2 - l1) > tol:
             lmid = 0.5 * (l2 + l1)
-            xnew = np.maximum(0.001, np.maximum(xold - move, np.minimum(1.0, np.minimum(xold + move, xold * np.sqrt(-sensitivity / lmid)))))
+            xnew = np.maximum(self.rho_min, np.maximum(xold - move, np.minimum(1.0, np.minimum(xold + move, xold * np.sqrt(-sensitivity / lmid)))))
             if np.sum(xnew) - self.volfrac * self.nx * self.ny > 0:
                 l1 = lmid
             else:
@@ -191,10 +190,11 @@ if __name__ == '__main__':
     ny = 20
     volfrac = 0.2
     penal = 3.0
-    rho_min = 1.5
+    rho_min = 0.001
+    radius = 1.5
     E = 1.0
     nu = 0.3
 
-    fem = FEM_TopOpt_Solver(nx, ny, volfrac, penal, rho_min, E, nu)
+    fem = FEM_TopOpt_Solver(nx, ny, volfrac, penal, rho_min, radius, E, nu)
     fem.topopt_solve()
     # print(fem.KE)
