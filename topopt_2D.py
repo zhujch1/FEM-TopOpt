@@ -6,7 +6,7 @@ from matplotlib.colors import LogNorm
 
 from utils import KE_2D_matrix
 
-class FEM_TopOpt_Solver:
+class FEM_TopOpt_Solver_2D:
     def __init__(self, nx: int, ny: int, volfrac: float, penal: float, rho_min: float, filter_radius: float, E: float, nu: float):
         self.nx = nx
         self.ny = ny
@@ -20,6 +20,13 @@ class FEM_TopOpt_Solver:
         self.x = self.volfrac * np.ones((self.ny, self.nx)) # Density distribution
 
         self.KE = KE_2D_matrix(self.E, self.nu)
+
+        self.dof = 2
+        self.total_dofs = 2 * (self.nx + 1) * (self.ny + 1)
+        self._init_load_and_bc()
+    
+    def _index(self, i: int, j: int) -> int:
+        return (i + j * (self.nx + 1)) * 2
 
     def topopt_solve(self, tol=0.01):
         
@@ -74,53 +81,21 @@ class FEM_TopOpt_Solver:
         plt.show()
 
     def fem_solve(self) -> np.ndarray:
-        K = sp.lil_matrix((2 * (self.nx + 1) * (self.ny + 1), 2 * (self.nx + 1) * (self.ny + 1)), dtype=np.float64)
-        F = sp.lil_matrix((2 * (self.ny + 1) * (self.nx + 1), 1), dtype=np.float64)
-        U = np.zeros((2 * (self.ny + 1) * (self.nx + 1), 1), dtype=np.float64)
+        K = sp.lil_matrix((self.total_dofs, self.total_dofs), dtype=np.float64)
+        U = np.zeros((self.total_dofs, 1), dtype=np.float64)
 
         for j in range(self.ny):
             for i in range(self.nx):
-                n1 = (self.nx + 1) * j + i
-                n2 = (self.nx + 1) * (j + 1) + i
+                n1 = self._index(i, j)
+                n2 = self._index(i, j + 1)
 
-                elem = np.array([2 * n1, 2 * n1 + 1, 2 * n1 + 2, 2 * n1 + 3, 
-                                 2 * n2 + 2, 2 * n2 + 3, 2 * n2, 2 * n2 + 1])
+                elem = np.array([n1, n1 + 1, n1 + 2, n1 + 3, 
+                                 n2 + 2, n2 + 3, n2, n2 + 1])
                 K[np.ix_(elem, elem)] += self.x[j, i] ** self.penal * self.KE
-        
-        # Define load and boundaries here:
-
-        # Load on top left corner. Fixed on bottom right corner and left edge
-        F[1, 0] = -1
-
-        fixeddofs = np.union1d(np.arange(0, 2 * self.ny * (self.nx + 1), 2 * (self.nx + 1)), [2 * (self.nx + 1) * (self.ny + 1) - 1])
-        alldofs = np.arange(2 * (self.ny + 1) * (self.nx + 1))
-        freedofs = np.setdiff1d(alldofs, fixeddofs)
-
-        # up_edge_y = np.arange(1, 2 * (self.nx + 1), 2)
-        # F[up_edge_y, 0] = -1
-
-        # fixeddofs = np.union1d([2 * (self.nx + 1) * (self.ny + 1) - 1, 2 * (self.nx + 1) * (self.ny + 1) - 2],
-        #                        [2 * (self.nx + 1) * (self.ny + 1) - 2 * (self.nx + 1) + 1, 2 * (self.nx + 1) * (self.ny + 1) - 2 * (self.nx + 1) + 2])
-        # alldofs = np.arange(2 * (self.ny + 1) * (self.nx + 1))
-        # freedofs = np.setdiff1d(alldofs, fixeddofs)
-
-        # scale = 750
-        # self_weight = np.sum(self.x, axis=0) / (self.ny * self.nx) * scale
-        # interped = np.interp(np.linspace(0, self.nx, self.nx + 1), np.arange(self.nx), self_weight)
-        # down_edge_y = np.arange(2 * (self.nx + 1) * self.ny, 2 * (self.nx + 1) * (self.ny + 1), 2)
-
-        # down_edge_y = np.arange(2 * (self.nx + 1) * self.ny + 1, 2 * (self.nx + 1) * (self.ny + 1), 2)
-        # F[down_edge_y, 0] = -interped
-        
-        # load_point_1, load_point_2 = int(self.nx / 5), int(4 * self.nx / 5)
-        # fixeddofs = np.union1d(
-        #     [2 * load_point_1, 2 * load_point_1 + 1],
-        #     [2 * load_point_2, 2 * load_point_2 + 1],
-        # )
 
         # Solving
         K = K.tocsc()
-        U[freedofs, 0] = spla.spsolve(K[freedofs, :][:, freedofs], F[freedofs, 0])
+        U[self.freedofs, 0] = spla.spsolve(K[self.freedofs, :][:, self.freedofs], self.F[self.freedofs, 0])
 
         return K, U
     
@@ -128,11 +103,11 @@ class FEM_TopOpt_Solver:
         LC = np.zeros_like(self.x)
         for j in range(self.ny):
             for i in range(self.nx):
-                n1 = (self.nx + 1) * j + i
-                n2 = (self.nx + 1) * (j + 1) + i
+                n1 = self._index(i, j)
+                n2 = self._index(i, j + 1)
 
-                elem = np.array([2 * n1, 2 * n1 + 1, 2 * n1 + 2, 2 * n1 + 3, 
-                                 2 * n2 + 2, 2 * n2 + 3, 2 * n2, 2 * n2 + 1])
+                elem = np.array([n1, n1 + 1, n1 + 2, n1 + 3, 
+                                 n2 + 2, n2 + 3, n2, n2 + 1])
         
                 LC[j, i] = self.x[j, i] ** self.penal * (U[elem, 0] @ self.KE @ U[elem, 0])
                 # LC[j, i] = (U[elem, 0] @ self.KE @ U[elem, 0])
@@ -143,11 +118,11 @@ class FEM_TopOpt_Solver:
         sensitivity = np.zeros_like(self.x)
         for j in range(self.ny):
             for i in range(self.nx):
-                n1 = (self.nx + 1) * j + i
-                n2 = (self.nx + 1) * (j + 1) + i
+                n1 = self._index(i, j)
+                n2 = self._index(i, j + 1)
 
-                elem = np.array([2 * n1, 2 * n1 + 1, 2 * n1 + 2, 2 * n1 + 3, 
-                                 2 * n2 + 2, 2 * n2 + 3, 2 * n2, 2 * n2 + 1])
+                elem = np.array([n1, n1 + 1, n1 + 2, n1 + 3, 
+                                 n2 + 2, n2 + 3, n2, n2 + 1])
         
                 sensitivity[j, i] = -self.penal * self.x[j, i] ** (self.penal - 1) * (U[elem, 0] @ self.KE @ U[elem, 0])
 
@@ -185,6 +160,27 @@ class FEM_TopOpt_Solver:
                 l2 = lmid
 
         self.x = xnew
+    
+    def _init_load_and_bc(self):
+        F = sp.lil_matrix((self.total_dofs, 1), dtype=np.float64)
+        F[1, 0] = -1
+
+        fixeddofs = np.union1d(
+            np.array([self._index(0, j) for j in range(self.ny + 1)]),
+            np.array([self._index(self.nx, self.ny) + 1])
+        )
+        alldofs = np.arange(self.total_dofs)
+        freedofs = np.setdiff1d(alldofs, fixeddofs)
+
+        self.F = F
+        self.freedofs = freedofs
+
+    def set_load_and_bc(self, load: np.ndarray, bc: np.ndarray):
+        F = sp.lil_matrix((self.total_dofs, 1), dtype=np.float64)
+        F[load, 0] = -1
+
+        self.F = F
+        self.freedofs = np.setdiff1d(np.arange(self.total_dofs), bc)
 
 
 if __name__ == '__main__':
@@ -197,6 +193,6 @@ if __name__ == '__main__':
     E = 1.0
     nu = 0.3
 
-    fem = FEM_TopOpt_Solver(nx, ny, volfrac, penal, rho_min, radius, E, nu)
+    fem = FEM_TopOpt_Solver_2D(nx, ny, volfrac, penal, rho_min, radius, E, nu)
     fem.topopt_solve()
     # print(fem.KE)

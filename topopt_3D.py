@@ -3,7 +3,10 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-# import time
+from typing import List
+import pickle
+import time
+import os
 
 from utils import KE_3D_matrix
 
@@ -21,18 +24,18 @@ class FEM_TopOpt_Solver_3D:
 
         self.x = np.ones((self.nz, self.ny, self.nx), dtype=float) * self.volfrac
         self.KE = KE_3D_matrix(self.E, self.nu)
+
+        self.dof = 3
+        self.total_dofs = (self.nx + 1) * (self.ny + 1) * (self.nz + 1) * self.dof
+        self._init_load_and_bc()
     
     def _index(self, i: int, j: int, k: int) -> int:
-        return i + j * (self.nx + 1) + k * (self.nx + 1) * (self.ny + 1)
+        return (i + j * (self.nx + 1) + k * (self.nx + 1) * (self.ny + 1)) * self.dof
     
     def topopt_solve(self, tol=0.01) -> None:
 
         change = 1e9
         iters = 0
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        ax.axis('off')
-        ax.set_box_aspect([self.nx, self.ny, self.nz])
 
         while change > tol:
             iters += 1
@@ -45,21 +48,16 @@ class FEM_TopOpt_Solver_3D:
             change = np.max(np.abs(self.x - xold))
             print(f' Iter: {iters:4} | Volume: {np.sum(self.x) / (self.nx * self.ny * self.nz):6.3f} | Change: {change:6.3f}')
 
-            # Visualization
-            if iters % 10 == 0:
-                ax.clear()
-                z, y, x = np.nonzero(self.x)
-                ax.scatter(x, y, z, c=-self.x[z, y, x], cmap='gray', marker='.', edgecolors='none')
-                plt.pause(0.1)
-        plt.show()
+            with open(f'./temp/data/topopt_3D_{iters}.pkl', 'wb') as f:
+                pickle.dump(self.x, f)
+    
+        self._offline_visualize(iters, save_to_gif=True)
+        self._clear_cache(iters)
 
     def fem_solve(self) -> np.ndarray:
-        dof = 3
-        node_cnt = (self.nx + 1) * (self.ny + 1) * (self.nz + 1)
 
-        K = sp.lil_matrix((dof * node_cnt, dof * node_cnt), dtype=np.float64)
-        F = sp.lil_matrix((dof * node_cnt, 1), dtype=np.float64)
-        U = np.zeros((dof * node_cnt, 1), dtype=np.float64)
+        K = sp.lil_matrix((self.total_dofs, self.total_dofs), dtype=np.float64)
+        U = np.zeros((self.total_dofs, 1), dtype=np.float64)
 
         for k in range(self.nz):
             for j in range(self.ny):
@@ -75,38 +73,24 @@ class FEM_TopOpt_Solver_3D:
                     n7 = self._index(i + 1, j + 1, k + 1)
                     n8 = self._index(i, j + 1, k + 1)
 
-                    elem = np.array([n1 * dof, n1 * dof + 1, n1 * dof + 2,
-                                     n2 * dof, n2 * dof + 1, n2 * dof + 2,
-                                     n3 * dof, n3 * dof + 1, n3 * dof + 2,
-                                     n4 * dof, n4 * dof + 1, n4 * dof + 2,
-                                     n5 * dof, n5 * dof + 1, n5 * dof + 2,
-                                     n6 * dof, n6 * dof + 1, n6 * dof + 2,
-                                     n7 * dof, n7 * dof + 1, n7 * dof + 2,
-                                     n8 * dof, n8 * dof + 1, n8 * dof + 2])
+                    elem = np.array([n1, n1 + 1, n1 + 2,
+                                     n2, n2 + 1, n2 + 2,
+                                     n3, n3 + 1, n3 + 2,
+                                     n4, n4 + 1, n4 + 2,
+                                     n5, n5 + 1, n5 + 2,
+                                     n6, n6 + 1, n6 + 2,
+                                     n7, n7 + 1, n7 + 2,
+                                     n8, n8 + 1, n8 + 2])
         
 
                     K[np.ix_(elem, elem)] += self.x[k, j, i] ** self.penal * self.KE
 
-        # Load on upper left-most edge (z-axis)
-        load_point = np.array([self._index(0, j, self.nz) * dof + 2 for j in range(self.ny + 1)])
-        F[load_point, 0] = -1
-
-        # Fixed x-axis of Left Face
-        left_face = np.array([self._index(0, j, k) * dof for j in range(self.ny + 1) for k in range(self.nz + 1)])
-        # Fixed xyz-axis of Lower Right Edge
-        lower_right_edge = np.array([self._index(self.nx, j, 0) * dof for j in range(self.ny + 1)])
-        lower_right_edge = np.concatenate((lower_right_edge, lower_right_edge + 1, lower_right_edge + 2))
-
-        fixeddofs = np.union1d(left_face, lower_right_edge)
-        alldofs = np.arange(dof * node_cnt)
-        freedofs = np.setdiff1d(alldofs, fixeddofs)
-
         # print("Solving...")
-        # t1 = time.time()
+        t1 = time.time()
         K = K.tocsc()
-        U[freedofs, 0] = spla.spsolve(K[freedofs, :][:, freedofs], F[freedofs, 0])
-        # t2 = time.time()
-        # print(f"Solving Time: {t2 - t1:.2f}s")
+        U[self.freedofs, 0] = spla.spsolve(K[self.freedofs, :][:, self.freedofs], self.F[self.freedofs, 0])
+        t2 = time.time()
+        print(f"Solving Time: {t2 - t1:.2f}s")
 
         return K, U
     
@@ -127,14 +111,14 @@ class FEM_TopOpt_Solver_3D:
                     n7 = self._index(i + 1, j + 1, k + 1)
                     n8 = self._index(i, j + 1, k + 1)
 
-                    elem = np.array([n1 * 3, n1 * 3 + 1, n1 * 3 + 2,
-                                     n2 * 3, n2 * 3 + 1, n2 * 3 + 2,
-                                     n3 * 3, n3 * 3 + 1, n3 * 3 + 2,
-                                     n4 * 3, n4 * 3 + 1, n4 * 3 + 2,
-                                     n5 * 3, n5 * 3 + 1, n5 * 3 + 2,
-                                     n6 * 3, n6 * 3 + 1, n6 * 3 + 2,
-                                     n7 * 3, n7 * 3 + 1, n7 * 3 + 2,
-                                     n8 * 3, n8 * 3 + 1, n8 * 3 + 2])
+                    elem = np.array([n1, n1 + 1, n1 + 2,
+                                     n2, n2 + 1, n2 + 2,
+                                     n3, n3 + 1, n3 + 2,
+                                     n4, n4 + 1, n4 + 2,
+                                     n5, n5 + 1, n5 + 2,
+                                     n6, n6 + 1, n6 + 2,
+                                     n7, n7 + 1, n7 + 2,
+                                     n8, n8 + 1, n8 + 2])
 
                     Ue = U[elem, 0]
                     sensitivity[k, j, i] = -self.penal * self.x[k, j, i] ** (self.penal - 1) * (Ue @ self.KE @ Ue)
@@ -172,6 +156,35 @@ class FEM_TopOpt_Solver_3D:
         # print(f"Filtering Time: {t2 - t1:.2f}s")
 
         return filtered_sensitivity
+    
+    # Default load and boundary
+    def _init_load_and_bc(self) -> None:
+        F = sp.lil_matrix((self.total_dofs, 1), dtype=np.float64)
+
+        # Load on upper left-most edge (z-axis)
+        load_point = np.array([self._index(0, j, self.nz) + 2 for j in range(self.ny + 1)])
+        F[load_point, 0] = -1
+
+        # Fixed x-axis of Left Face
+        left_face = np.array([self._index(0, j, k) for j in range(self.ny + 1) for k in range(self.nz + 1)])
+        # Fixed xyz-axis of Lower Right Edge
+        lower_right_edge = np.array([self._index(self.nx, j, 0) for j in range(self.ny + 1)])
+        lower_right_edge = np.concatenate((lower_right_edge, lower_right_edge + 1, lower_right_edge + 2))
+
+        fixeddofs = np.union1d(left_face, lower_right_edge)
+        alldofs = np.arange(self.total_dofs)
+        freedofs = np.setdiff1d(alldofs, fixeddofs)
+
+        self.F = F
+        self.freedofs = freedofs
+
+    # Set load and boundary
+    def set_load_and_bc(self, load: np.ndarray, bc: np.ndarray) -> None:
+        F = sp.lil_matrix((self.total_dofs, 1), dtype=np.float64)
+        F[load, 0] = -1
+
+        self.F = F
+        self.freedofs = np.setdiff1d(np.arange(self.total_dofs), bc)
 
     def optimality_criteria(self, sensitivity, tol=1e-4) -> None:
         # print("Optimizing...")
@@ -193,8 +206,52 @@ class FEM_TopOpt_Solver_3D:
         # print(f"Optimization Time: {t2 - t1:.2f}s")
 
         self.x = xnew
+    
+    def _clear_cache(self, iters: int) -> None:
+        for i in range(1, iters + 1):
+            os.remove(f'./temp/data/topopt_3D_{i}.pkl')
+            try:
+                os.remove(f'./temp/pics/topopt_3D_{i}.png')
+            except FileNotFoundError:
+                pass
+    
+    def _offline_visualize(self, frame_nums: int, save_to_gif: bool=True, clear_cache=False) -> None:
+        rhos: List[np.ndarray] = []
+        for i in range(1, frame_nums + 1):
+            with open(f'./temp/data/topopt_3D_{i}.pkl', 'rb') as f:
+                rhos.append(np.load(f, allow_pickle=True))
+        
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.axis('off')
+        ax.set_axis_off()
+        ax.set_box_aspect([self.nx, self.ny, self.nz])
+
+        if save_to_gif:
+            frames = []
+            import imageio.v2 as imageio
+
+        for idx, rho in enumerate(rhos):
+            ax.clear()
+            z, y, x = np.nonzero(rho)
+            ax.scatter(x, y, z, c=-rho[z, y, x], cmap='gray', marker='.', edgecolors='none')
+            ax.set_title(f'Iter: {idx+1}')
+
+            if save_to_gif:
+                plt.savefig(f'./temp/pics/topopt_3D_{idx+1}.png')
+                frames.append(imageio.imread(f'./temp/pics/topopt_3D_{idx+1}.png'))
+                
+            plt.pause(0.1)
+
+        plt.close()
+
+        if save_to_gif:
+            imageio.mimsave('./output/topopt_3D.gif', frames)
+        
+        if clear_cache:
+            self._clear_cache(frame_nums)
 
 if __name__ == '__main__':
-    fem_solver = FEM_TopOpt_Solver_3D(nx=60, ny=20, nz=10, volfrac=0.5, penal=3.0, 
-                                      rho_min=1e-3, filter_radius=2.0, E=1.0, nu=0.3)
+    fem_solver = FEM_TopOpt_Solver_3D(nx=60, ny=20, nz=10, volfrac=0.3, penal=3.0, 
+                                      rho_min=1e-3, filter_radius=1.5, E=1.0, nu=0.3)
     fem_solver.topopt_solve()
