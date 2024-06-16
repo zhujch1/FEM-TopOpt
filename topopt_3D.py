@@ -3,6 +3,7 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+# import time
 
 from utils import KE_3D_matrix
 
@@ -29,6 +30,9 @@ class FEM_TopOpt_Solver_3D:
         change = 1e9
         iters = 0
         fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.axis('off')
+        ax.set_box_aspect([self.nx, self.ny, self.nz])
 
         while change > tol:
             iters += 1
@@ -42,15 +46,11 @@ class FEM_TopOpt_Solver_3D:
             print(f' Iter: {iters:4} | Volume: {np.sum(self.x) / (self.nx * self.ny * self.nz):6.3f} | Change: {change:6.3f}')
 
             # Visualization
-            plt.clf()
-            ax = fig.add_subplot(111, projection='3d')
-            x, y, z = np.nonzero(self.x)
-
-            ax.scatter(x, y, z, c=-self.x[x, y, z], cmap='grey')
-            ax.set_xlabel('X')
-            ax.set_ylabel('Y')
-            ax.set_zlabel('Z')
-            plt.pause(1e-2)
+            if iters % 10 == 0:
+                ax.clear()
+                z, y, x = np.nonzero(self.x)
+                ax.scatter(x, y, z, c=-self.x[z, y, x], cmap='gray', marker='.', edgecolors='none')
+                plt.pause(0.1)
         plt.show()
 
     def fem_solve(self) -> np.ndarray:
@@ -87,14 +87,14 @@ class FEM_TopOpt_Solver_3D:
 
                     K[np.ix_(elem, elem)] += self.x[k, j, i] ** self.penal * self.KE
 
-        # Load on upper left-most edge
-        load_point = np.array([self._index(0, j, 0) * dof + 1 for j in range(self.ny + 1)])
+        # Load on upper left-most edge (z-axis)
+        load_point = np.array([self._index(0, j, self.nz) * dof + 2 for j in range(self.ny + 1)])
         F[load_point, 0] = -1
 
         # Fixed x-axis of Left Face
         left_face = np.array([self._index(0, j, k) * dof for j in range(self.ny + 1) for k in range(self.nz + 1)])
         # Fixed xyz-axis of Lower Right Edge
-        lower_right_edge = np.array([self._index(self.nx, j, self.nz) * dof for j in range(self.ny + 1)])
+        lower_right_edge = np.array([self._index(self.nx, j, 0) * dof for j in range(self.ny + 1)])
         lower_right_edge = np.concatenate((lower_right_edge, lower_right_edge + 1, lower_right_edge + 2))
 
         fixeddofs = np.union1d(left_face, lower_right_edge)
@@ -102,13 +102,18 @@ class FEM_TopOpt_Solver_3D:
         freedofs = np.setdiff1d(alldofs, fixeddofs)
 
         # print("Solving...")
+        # t1 = time.time()
         K = K.tocsc()
         U[freedofs, 0] = spla.spsolve(K[freedofs, :][:, freedofs], F[freedofs, 0])
+        # t2 = time.time()
+        # print(f"Solving Time: {t2 - t1:.2f}s")
 
         return K, U
     
     def compute_sensitiviy(self, U: np.ndarray) -> np.ndarray:
         # print("Computing Sensitivity...")
+        # t1 = time.time()
+        
         sensitivity = np.zeros_like(self.x)
         for k in range(self.nz):
             for j in range(self.ny):
@@ -134,11 +139,14 @@ class FEM_TopOpt_Solver_3D:
                     Ue = U[elem, 0]
                     sensitivity[k, j, i] = -self.penal * self.x[k, j, i] ** (self.penal - 1) * (Ue @ self.KE @ Ue)
         
+        # t2 = time.time()
+        # print(f"Sensitivity Computing Time: {t2 - t1:.2f}s")
+
         return sensitivity
     
     def sensitiviy_filter(self, sensitivity: np.ndarray) -> np.ndarray:
         # print("Filtering Sensitivity...")
-        #TODO: Improve performance
+        # t1 = time.time()
         filtered_sensitivity = np.zeros_like(sensitivity)
         for k in range(self.nz):
             for j in range(self.ny):
@@ -160,10 +168,15 @@ class FEM_TopOpt_Solver_3D:
                     
                     filtered_sensitivity[k, j, i] /= self.x[k, j, i] * sum_ 
 
+        # t2 = time.time()
+        # print(f"Filtering Time: {t2 - t1:.2f}s")
+
         return filtered_sensitivity
 
     def optimality_criteria(self, sensitivity, tol=1e-4) -> None:
         # print("Optimizing...")
+        # t1 = time.time()
+
         l1, l2, move = 0, 1e5, 0.2
 
         xold = self.x.copy()
@@ -176,9 +189,12 @@ class FEM_TopOpt_Solver_3D:
             else:
                 l2 = lmid
 
+        # t2 = time.time()
+        # print(f"Optimization Time: {t2 - t1:.2f}s")
+
         self.x = xnew
 
 if __name__ == '__main__':
-    fem_solver = FEM_TopOpt_Solver_3D(nx=20, ny=20, nz=5, volfrac=0.5, penal=3.0, 
+    fem_solver = FEM_TopOpt_Solver_3D(nx=60, ny=20, nz=10, volfrac=0.5, penal=3.0, 
                                       rho_min=1e-3, filter_radius=2.0, E=1.0, nu=0.3)
     fem_solver.topopt_solve()
