@@ -4,6 +4,8 @@ import scipy.sparse.linalg as spla
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
+from utils import KE_2D_matrix
+
 class FEM_TopOpt_Solver:
     def __init__(self, nx: int, ny: int, volfrac: float, penal: float, rho_min: float, E: float, nu: float):
         self.nx = nx
@@ -16,7 +18,7 @@ class FEM_TopOpt_Solver:
 
         self.x = self.volfrac * np.ones((self.ny, self.nx)) # Density distribution
 
-        self.KE = self._element_stiffness()
+        self.KE = KE_2D_matrix(self.E, self.nu)
 
     def topopt_solve(self, tol=0.01):
         
@@ -69,22 +71,6 @@ class FEM_TopOpt_Solver:
 
             plt.pause(1e-2)
         plt.show()
-    
-    def _element_stiffness(self) -> np.ndarray:
-        k = np.array([1/2 - self.nu/6,      1/8 + self.nu/8,    -1/4 - self.nu/12,  -1/8 + 3 * self.nu/8,
-                     -1/4 + self.nu/12,    -1/8 - self.nu/8,    self.nu/6,           1/8 - 3 * self.nu/8])
-        KE = self.E / (1 - self.nu ** 2) * np.array([
-            [k[0], k[1], k[2], k[3], k[4], k[5], k[6], k[7]],
-            [k[1], k[0], k[7], k[6], k[5], k[4], k[3], k[2]],
-            [k[2], k[7], k[0], k[5], k[6], k[3], k[4], k[1]],
-            [k[3], k[6], k[5], k[0], k[7], k[2], k[1], k[4]],
-            [k[4], k[5], k[6], k[7], k[0], k[1], k[2], k[3]],
-            [k[5], k[4], k[3], k[2], k[1], k[0], k[7], k[6]],
-            [k[6], k[3], k[4], k[1], k[2], k[7], k[0], k[5]],
-            [k[7], k[2], k[1], k[4], k[3], k[6], k[5], k[0]]
-        ], dtype=np.float64)
-
-        return KE
 
     def fem_solve(self) -> np.ndarray:
         K = sp.lil_matrix((2 * (self.nx + 1) * (self.ny + 1), 2 * (self.nx + 1) * (self.ny + 1)), dtype=np.float64)
@@ -95,10 +81,6 @@ class FEM_TopOpt_Solver:
             for i in range(self.nx):
                 n1 = (self.nx + 1) * j + i
                 n2 = (self.nx + 1) * (j + 1) + i
-
-                # Four nodes of the element [upper left, upper right, lower right, lower left]
-                # elem = np.array([2 * n1, 2 * n1 + 1, 2 * n1 + 2, 2 * n1 + 3, 
-                #                  2 * n2 + 2, 2 * n2 + 3, 2 * n2, 2 * n2 + 1])
 
                 elem = np.array([2 * n2, 2 * n2 + 1, 2 * n2 + 2, 2 * n2 + 3, 
                                  2 * n1 + 2, 2 * n1 + 3, 2 * n1, 2 * n1 + 1])
@@ -151,8 +133,6 @@ class FEM_TopOpt_Solver:
                 n1 = (self.nx + 1) * j + i
                 n2 = (self.nx + 1) * (j + 1) + i
 
-                # elem = np.array([2 * n1, 2 * n1 + 1, 2 * n1 + 2, 2 * n1 + 3, 
-                #                  2 * n2 + 2, 2 * n2 + 3, 2 * n2, 2 * n2 + 1])
                 elem = np.array([2 * n2, 2 * n2 + 1, 2 * n2 + 2, 2 * n2 + 3, 
                                  2 * n1 + 2, 2 * n1 + 3, 2 * n1, 2 * n1 + 1])
         
@@ -168,8 +148,6 @@ class FEM_TopOpt_Solver:
                 n1 = (self.nx + 1) * j + i
                 n2 = (self.nx + 1) * (j + 1) + i
 
-                # elem = np.array([2 * n1, 2 * n1 + 1, 2 * n1 + 2, 2 * n1 + 3, 
-                #                  2 * n2 + 2, 2 * n2 + 3, 2 * n2, 2 * n2 + 1])
                 elem = np.array([2 * n2, 2 * n2 + 1, 2 * n2 + 2, 2 * n2 + 3, 
                                  2 * n1 + 2, 2 * n1 + 3, 2 * n1, 2 * n1 + 1])
         
@@ -211,7 +189,7 @@ class FEM_TopOpt_Solver:
 if __name__ == '__main__':
     nx = 60
     ny = 20
-    volfrac = 0.4
+    volfrac = 0.2
     penal = 3.0
     rho_min = 1.5
     E = 1.0
