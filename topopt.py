@@ -82,8 +82,8 @@ class FEM_TopOpt_Solver:
                 n1 = (self.nx + 1) * j + i
                 n2 = (self.nx + 1) * (j + 1) + i
 
-                elem = np.array([2 * n2, 2 * n2 + 1, 2 * n2 + 2, 2 * n2 + 3, 
-                                 2 * n1 + 2, 2 * n1 + 3, 2 * n1, 2 * n1 + 1])
+                elem = np.array([2 * n1, 2 * n1 + 1, 2 * n1 + 2, 2 * n1 + 3, 
+                                 2 * n2 + 2, 2 * n2 + 3, 2 * n2, 2 * n2 + 1])
                 K[np.ix_(elem, elem)] += self.x[j, i] ** self.penal * self.KE
         
         # Define load and boundaries here:
@@ -133,8 +133,8 @@ class FEM_TopOpt_Solver:
                 n1 = (self.nx + 1) * j + i
                 n2 = (self.nx + 1) * (j + 1) + i
 
-                elem = np.array([2 * n2, 2 * n2 + 1, 2 * n2 + 2, 2 * n2 + 3, 
-                                 2 * n1 + 2, 2 * n1 + 3, 2 * n1, 2 * n1 + 1])
+                elem = np.array([2 * n1, 2 * n1 + 1, 2 * n1 + 2, 2 * n1 + 3, 
+                                 2 * n2 + 2, 2 * n2 + 3, 2 * n2, 2 * n2 + 1])
         
                 LC[j, i] = self.x[j, i] ** self.penal * (U[elem, 0] @ self.KE @ U[elem, 0])
                 # LC[j, i] = (U[elem, 0] @ self.KE @ U[elem, 0])
@@ -148,8 +148,8 @@ class FEM_TopOpt_Solver:
                 n1 = (self.nx + 1) * j + i
                 n2 = (self.nx + 1) * (j + 1) + i
 
-                elem = np.array([2 * n2, 2 * n2 + 1, 2 * n2 + 2, 2 * n2 + 3, 
-                                 2 * n1 + 2, 2 * n1 + 3, 2 * n1, 2 * n1 + 1])
+                elem = np.array([2 * n1, 2 * n1 + 1, 2 * n1 + 2, 2 * n1 + 3, 
+                                 2 * n2 + 2, 2 * n2 + 3, 2 * n2, 2 * n2 + 1])
         
                 sensitivity[j, i] = -self.penal * self.x[j, i] ** (self.penal - 1) * (U[elem, 0] @ self.KE @ U[elem, 0])
 
