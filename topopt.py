@@ -15,10 +15,9 @@ class FEM_TopOpt_Solver:
         self.rho_min = rho_min
         self.E = E
         self.nu = nu
+        self.filter_radius = filter_radius
 
         self.x = self.volfrac * np.ones((self.ny, self.nx)) # Density distribution
-
-        self.filter_radius = 1.5
 
         self.KE = KE_2D_matrix(self.E, self.nu)
 
@@ -155,6 +154,9 @@ class FEM_TopOpt_Solver:
         return sensitivity
 
     def sensitivity_filter(self, sensitivity: np.ndarray) -> np.ndarray:
+        if self.filter_radius <= 0.:
+            return sensitivity
+
         filtered_sensitivity = np.zeros_like(sensitivity)
         for j in range(self.ny):
             for i in range(self.nx):
@@ -188,10 +190,10 @@ class FEM_TopOpt_Solver:
 if __name__ == '__main__':
     nx = 60
     ny = 20
-    volfrac = 0.2
+    volfrac = 0.4
     penal = 3.0
     rho_min = 0.001
-    radius = 1.5
+    radius = 2.
     E = 1.0
     nu = 0.3
 

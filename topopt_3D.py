@@ -1,6 +1,8 @@
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 from utils import KE_3D_matrix
 
@@ -16,11 +18,40 @@ class FEM_TopOpt_Solver_3D:
         self.nu = nu
         self.filter_radius = filter_radius
 
-        self.x = np.ones((self.ny, self.nx, self.nz), dtype=float) * self.volfrac
+        self.x = np.ones((self.nz, self.ny, self.nx), dtype=float) * self.volfrac
         self.KE = KE_3D_matrix(self.E, self.nu)
     
     def _index(self, i: int, j: int, k: int) -> int:
         return i + j * (self.nx + 1) + k * (self.nx + 1) * (self.ny + 1)
+    
+    def topopt_solve(self, tol=0.01) -> None:
+
+        change = 1e9
+        iters = 0
+        fig = plt.figure()
+
+        while change > tol:
+            iters += 1
+            xold = self.x.copy()
+            K, U = self.fem_solve()
+            sensitivity = self.compute_sensitiviy(U)
+            sensitivity = self.sensitiviy_filter(sensitivity)
+            self.optimality_criteria(sensitivity)
+
+            change = np.max(np.abs(self.x - xold))
+            print(f' Iter: {iters:4} | Volume: {np.sum(self.x) / (self.nx * self.ny * self.nz):6.3f} | Change: {change:6.3f}')
+
+            # Visualization
+            plt.clf()
+            ax = fig.add_subplot(111, projection='3d')
+            x, y, z = np.nonzero(self.x)
+
+            ax.scatter(x, y, z, c=-self.x[x, y, z], cmap='grey')
+            ax.set_xlabel('X')
+            ax.set_ylabel('Y')
+            ax.set_zlabel('Z')
+            plt.pause(1e-2)
+        plt.show()
 
     def fem_solve(self) -> np.ndarray:
         dof = 3
@@ -70,12 +101,14 @@ class FEM_TopOpt_Solver_3D:
         alldofs = np.arange(dof * node_cnt)
         freedofs = np.setdiff1d(alldofs, fixeddofs)
 
+        # print("Solving...")
         K = K.tocsc()
         U[freedofs, 0] = spla.spsolve(K[freedofs, :][:, freedofs], F[freedofs, 0])
 
         return K, U
     
     def compute_sensitiviy(self, U: np.ndarray) -> np.ndarray:
+        # print("Computing Sensitivity...")
         sensitivity = np.zeros_like(self.x)
         for k in range(self.nz):
             for j in range(self.ny):
@@ -104,22 +137,23 @@ class FEM_TopOpt_Solver_3D:
         return sensitivity
     
     def sensitiviy_filter(self, sensitivity: np.ndarray) -> np.ndarray:
+        # print("Filtering Sensitivity...")
         #TODO: Improve performance
         filtered_sensitivity = np.zeros_like(sensitivity)
         for k in range(self.nz):
             for j in range(self.ny):
                 for i in range(self.nx):
-                    i_low  = max(i - np.floor(self.filter_radius), 0)
-                    i_high = min(i + np.floor(self.filter_radius), self.nx)
-                    j_low  = max(j - np.floor(self.filter_radius), 0)
-                    j_high = min(j + np.floor(self.filter_radius), self.ny)
-                    k_low  = max(k - np.floor(self.filter_radius), 0)
-                    k_high = min(k + np.floor(self.filter_radius), self.nz)
+                    i_low  = int(max(i - np.floor(self.filter_radius), 0))
+                    i_high = int(min(i + np.floor(self.filter_radius) + 1, self.nx))
+                    j_low  = int(max(j - np.floor(self.filter_radius), 0))
+                    j_high = int(min(j + np.floor(self.filter_radius) + 1, self.ny))
+                    k_low  = int(max(k - np.floor(self.filter_radius), 0))
+                    k_high = int(min(k + np.floor(self.filter_radius) + 1, self.nz))
 
                     sum_ = 0.0
-                    for kk in range(k_low, k_high + 1):
-                        for jj in range(j_low, j_high + 1):
-                            for ii in range(i_low, i_high + 1):
+                    for kk in range(k_low, k_high):
+                        for jj in range(j_low, j_high):
+                            for ii in range(i_low, i_high):
                                 fac = self.filter_radius - np.sqrt((i - ii) ** 2 + (j - jj) ** 2 + (k - kk) ** 2)
                                 sum_ += max(0, fac)
                                 filtered_sensitivity[k, j, i] += max(0, fac) * self.x[kk, jj, ii] * sensitivity[k, j, i]
@@ -129,6 +163,7 @@ class FEM_TopOpt_Solver_3D:
         return filtered_sensitivity
 
     def optimality_criteria(self, sensitivity, tol=1e-4) -> None:
+        # print("Optimizing...")
         l1, l2, move = 0, 1e5, 0.2
 
         xold = self.x.copy()
@@ -142,3 +177,8 @@ class FEM_TopOpt_Solver_3D:
                 l2 = lmid
 
         self.x = xnew
+
+if __name__ == '__main__':
+    fem_solver = FEM_TopOpt_Solver_3D(nx=20, ny=20, nz=5, volfrac=0.5, penal=3.0, 
+                                      rho_min=1e-3, filter_radius=2.0, E=1.0, nu=0.3)
+    fem_solver.topopt_solve()
