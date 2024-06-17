@@ -11,7 +11,8 @@ import os
 from utils import KE_3D_matrix
 
 class FEM_TopOpt_Solver_3D:
-    def __init__(self, nx: int, ny: int, nz: int, volfrac: float, penal: float, rho_min: float, filter_radius: float, E: float, nu: float) -> None:
+    def __init__(self, nx: int, ny: int, nz: int, volfrac: float, penal: float=3.0, 
+                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, E: float=1.0, nu: float=0.3) -> None:
         self.nx = nx
         self.ny = ny
         self.nz = nz
@@ -21,6 +22,7 @@ class FEM_TopOpt_Solver_3D:
         self.E = E
         self.nu = nu
         self.filter_radius = filter_radius
+        self.move = move
 
         self.x = np.ones((self.nz, self.ny, self.nx), dtype=float) * self.volfrac
         self.KE = KE_3D_matrix(self.E, self.nu)
@@ -28,14 +30,19 @@ class FEM_TopOpt_Solver_3D:
         self.dof = 3
         self.total_dofs = (self.nx + 1) * (self.ny + 1) * (self.nz + 1) * self.dof
         self._init_load_and_bc()
+
+        self.prev_change = 1e9
     
     def _index(self, i: int, j: int, k: int) -> int:
         return (i + j * (self.nx + 1) + k * (self.nx + 1) * (self.ny + 1)) * self.dof
     
-    def topopt_solve(self, tol=0.01) -> None:
+    def topopt_solve(self, tol=0.03) -> None:
 
         change = 1e9
         iters = 0
+
+        with open(f'./temp/data/topopt_3D_0.pkl', 'wb') as f:
+            pickle.dump(self.x, f)
 
         while change > tol:
             iters += 1
@@ -50,9 +57,15 @@ class FEM_TopOpt_Solver_3D:
 
             with open(f'./temp/data/topopt_3D_{iters}.pkl', 'wb') as f:
                 pickle.dump(self.x, f)
+            
+            # Adaptive move for better convergence
+            if change > self.prev_change + 1e-4:
+                print('Change is increasing, reducing move...')
+                self.move *= 0.5
+            self.prev_change = change
     
         self._offline_visualize(iters, save_to_gif=True)
-        self._clear_cache(iters)
+        # self._clear_cache(iters)
 
     def fem_solve(self) -> np.ndarray:
 
@@ -190,7 +203,7 @@ class FEM_TopOpt_Solver_3D:
         # print("Optimizing...")
         # t1 = time.time()
 
-        l1, l2, move = 0, 1e5, 0.2
+        l1, l2, move = 0, 1e5, self.move
 
         xold = self.x.copy()
 
@@ -208,7 +221,7 @@ class FEM_TopOpt_Solver_3D:
         self.x = xnew
     
     def _clear_cache(self, iters: int) -> None:
-        for i in range(1, iters + 1):
+        for i in range(0, iters + 1):
             os.remove(f'./temp/data/topopt_3D_{i}.pkl')
             try:
                 os.remove(f'./temp/pics/topopt_3D_{i}.png')
@@ -217,13 +230,14 @@ class FEM_TopOpt_Solver_3D:
     
     def _offline_visualize(self, frame_nums: int, save_to_gif: bool=True, clear_cache=False) -> None:
         rhos: List[np.ndarray] = []
-        for i in range(1, frame_nums + 1):
+        for i in range(0, frame_nums + 1):
             with open(f'./temp/data/topopt_3D_{i}.pkl', 'rb') as f:
                 rhos.append(np.load(f, allow_pickle=True))
         
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         ax.axis('off')
+        ax.grid(False)
         ax.set_axis_off()
         ax.set_box_aspect([self.nx, self.ny, self.nz])
 
@@ -233,20 +247,21 @@ class FEM_TopOpt_Solver_3D:
 
         for idx, rho in enumerate(rhos):
             ax.clear()
-            z, y, x = np.nonzero(rho)
-            ax.scatter(x, y, z, c=-rho[z, y, x], cmap='gray', marker='.', edgecolors='none')
+            mask = (rho > self.rho_min)
+            z, y, x = np.nonzero(mask)
+            ax.scatter(x, y, z, c=-rho[z, y, x], cmap='gray', marker='.', edgecolors='none', alpha=0.5)
             ax.set_title(f'Iter: {idx+1}')
 
             if save_to_gif:
-                plt.savefig(f'./temp/pics/topopt_3D_{idx+1}.png')
-                frames.append(imageio.imread(f'./temp/pics/topopt_3D_{idx+1}.png'))
+                plt.savefig(f'./temp/pics/topopt_3D_{idx}.png')
+                frames.append(imageio.imread(f'./temp/pics/topopt_3D_{idx}.png'))
                 
             plt.pause(0.1)
 
         plt.close()
 
         if save_to_gif:
-            imageio.mimsave('./output/topopt_3D.gif', frames)
+            imageio.mimsave('./output/topopt_3D.gif', frames, duration=0.5)
         
         if clear_cache:
             self._clear_cache(frame_nums)

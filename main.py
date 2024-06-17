@@ -4,7 +4,8 @@ import topopt_2D
 import topopt_3D
 
 def demo_3D_1():
-    nx, ny, nz = 40, 20, 10
+    nx, ny, nz = 50, 20, 20
+    # nx, ny, nz = 30, 30, 30
     solver = topopt_3D.FEM_TopOpt_Solver_3D(nx=nx, ny=ny, nz=nz, volfrac=0.3, penal=3.0, 
                                          rho_min=0.001, filter_radius=1.5, E=1.0, nu=0.3)
     

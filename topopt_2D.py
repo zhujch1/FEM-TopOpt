@@ -7,7 +7,8 @@ from matplotlib.colors import LogNorm
 from utils import KE_2D_matrix
 
 class FEM_TopOpt_Solver_2D:
-    def __init__(self, nx: int, ny: int, volfrac: float, penal: float, rho_min: float, filter_radius: float, E: float, nu: float):
+    def __init__(self, nx: int, ny: int, volfrac: float, penal: float=3.0, 
+                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, E: float=1.0, nu: float=0.3):
         self.nx = nx
         self.ny = ny
         self.volfrac = volfrac
@@ -16,6 +17,7 @@ class FEM_TopOpt_Solver_2D:
         self.E = E
         self.nu = nu
         self.filter_radius = filter_radius
+        self.move = move
 
         self.x = self.volfrac * np.ones((self.ny, self.nx)) # Density distribution
 
@@ -24,6 +26,8 @@ class FEM_TopOpt_Solver_2D:
         self.dof = 2
         self.total_dofs = 2 * (self.nx + 1) * (self.ny + 1)
         self._init_load_and_bc()
+
+        self.prev_change = 1e9
     
     def _index(self, i: int, j: int) -> int:
         return (i + j * (self.nx + 1)) * 2
@@ -46,6 +50,12 @@ class FEM_TopOpt_Solver_2D:
 
             change = np.max(np.abs(self.x - xold))
             print(f' Iter: {iters:4} | Volume: {np.sum(self.x) / (self.nx * self.ny):6.3f} | Change: {change:6.3f}')
+
+            # Adaptive move for better convergence
+            if change > self.prev_change + 1e-4:
+                print('Change is increasing, reducing move...')
+                self.move *= 0.5
+            self.prev_change = change
             
             # Visualization
             plt.clf()
@@ -147,7 +157,7 @@ class FEM_TopOpt_Solver_2D:
     
     # Binary Search
     def optimality_criteria(self, sensitivity, tol=1e-4) -> None:
-        l1, l2, move = 0, 1e5, 0.2
+        l1, l2, move = 0, 1e5, self.move
 
         xold = self.x.copy()
 
