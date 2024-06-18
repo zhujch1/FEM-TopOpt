@@ -12,7 +12,7 @@ from utils import KE_3D_matrix
 
 class FEM_TopOpt_Solver_3D:
     def __init__(self, nx: int, ny: int, nz: int, volfrac: float, penal: float=3.0, 
-                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, E: float=1.0, nu: float=0.3) -> None:
+                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, max_iter: int=None, E: float=1.0, nu: float=0.3) -> None:
         self.nx = nx
         self.ny = ny
         self.nz = nz
@@ -23,6 +23,7 @@ class FEM_TopOpt_Solver_3D:
         self.nu = nu
         self.filter_radius = filter_radius
         self.move = move
+        self.max_iter = max_iter
 
         self.x = np.ones((self.nz, self.ny, self.nx), dtype=float) * self.volfrac
         self.KE = KE_3D_matrix(self.E, self.nu)
@@ -50,19 +51,28 @@ class FEM_TopOpt_Solver_3D:
             K, U = self.fem_solve()
             sensitivity = self.compute_sensitiviy(U)
             sensitivity = self.sensitiviy_filter(sensitivity)
-            self.optimality_criteria(sensitivity)
+            xnew = self.optimality_criteria(sensitivity)
 
-            change = np.max(np.abs(self.x - xold))
+            change = np.max(np.abs(xnew - xold))
+            # Adaptive move for better convergence
+            if change > self.prev_change + 1e-4:
+                print(f'Change is increasing, aborting this iter...')
+                iters -= 1
+                print(f'Reducing move from {self.move:6.3f} to {0.9 * self.move:6.3f}...')
+                self.move *= 0.9
+                continue
+            
+            self.x = xnew
+            self.prev_change = change
+
             print(f' Iter: {iters:4} | Volume: {np.sum(self.x) / (self.nx * self.ny * self.nz):6.3f} | Change: {change:6.3f}')
 
             with open(f'./temp/data/topopt_3D_{iters}.pkl', 'wb') as f:
                 pickle.dump(self.x, f)
             
-            # Adaptive move for better convergence
-            if change > self.prev_change + 1e-4:
-                print('Change is increasing, reducing move...')
-                self.move *= 0.5
-            self.prev_change = change
+            if self.max_iter and iters >= self.max_iter:
+                break
+            
     
         self._offline_visualize(iters, save_to_gif=True)
         # self._clear_cache(iters)
@@ -199,7 +209,7 @@ class FEM_TopOpt_Solver_3D:
         self.F = F
         self.freedofs = np.setdiff1d(np.arange(self.total_dofs), bc)
 
-    def optimality_criteria(self, sensitivity, tol=1e-4) -> None:
+    def optimality_criteria(self, sensitivity, tol=1e-4) -> np.ndarray:
         # print("Optimizing...")
         # t1 = time.time()
 
@@ -218,7 +228,7 @@ class FEM_TopOpt_Solver_3D:
         # t2 = time.time()
         # print(f"Optimization Time: {t2 - t1:.2f}s")
 
-        self.x = xnew
+        return xnew
     
     def _clear_cache(self, iters: int) -> None:
         for i in range(0, iters + 1):

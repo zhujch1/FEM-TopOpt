@@ -46,16 +46,22 @@ class FEM_TopOpt_Solver_2D:
             K, U = self.fem_solve()
             sensitivity = self.compute_sensitivity(U)
             sensitivity = self.sensitivity_filter(sensitivity)
-            self.optimality_criteria(sensitivity)
+            xnew = self.optimality_criteria(sensitivity)
 
-            change = np.max(np.abs(self.x - xold))
+            change = np.max(np.abs(xnew - xold))
+            if change > self.prev_change + 1e-4:
+                print(f'Change is increasing, aborting this iter...')
+                iters -= 1
+                print(f'Reducing move from {self.move:6.3f} to {0.9 * self.move:6.3f}...')
+                self.move *= 0.9
+                continue
+            
+            self.x = xnew
+            self.prev_change = change
+
             print(f' Iter: {iters:4} | Volume: {np.sum(self.x) / (self.nx * self.ny):6.3f} | Change: {change:6.3f}')
 
             # Adaptive move for better convergence
-            if change > self.prev_change + 1e-4:
-                print('Change is increasing, reducing move...')
-                self.move *= 0.5
-            self.prev_change = change
             
             # Visualization
             plt.clf()
@@ -156,7 +162,7 @@ class FEM_TopOpt_Solver_2D:
         return filtered_sensitivity
     
     # Binary Search
-    def optimality_criteria(self, sensitivity, tol=1e-4) -> None:
+    def optimality_criteria(self, sensitivity, tol=1e-4) -> np.ndarray:
         l1, l2, move = 0, 1e5, self.move
 
         xold = self.x.copy()
@@ -169,7 +175,7 @@ class FEM_TopOpt_Solver_2D:
             else:
                 l2 = lmid
 
-        self.x = xnew
+        return xnew
     
     def _init_load_and_bc(self):
         F = sp.lil_matrix((self.total_dofs, 1), dtype=np.float64)
