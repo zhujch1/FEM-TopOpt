@@ -3,12 +3,15 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
+from typing import List
+import pickle
+import os
 
 from utils import KE_2D_matrix
 
 class FEM_TopOpt_Solver_2D:
     def __init__(self, nx: int, ny: int, volfrac: float, penal: float=3.0, 
-                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, E: float=1.0, nu: float=0.3):
+                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, max_iter=None, E: float=1.0, nu: float=0.3):
         self.nx = nx
         self.ny = ny
         self.volfrac = volfrac
@@ -18,6 +21,7 @@ class FEM_TopOpt_Solver_2D:
         self.nu = nu
         self.filter_radius = filter_radius
         self.move = move
+        self.max_iter = max_iter
 
         self.x = self.volfrac * np.ones((self.ny, self.nx)) # Density distribution
 
@@ -32,13 +36,13 @@ class FEM_TopOpt_Solver_2D:
     def _index(self, i: int, j: int) -> int:
         return (i + j * (self.nx + 1)) * 2
 
-    def topopt_solve(self, tol=0.01):
+    def topopt_solve(self, tol=0.02):
         
         change = 1e9
         iters = 0
 
-        plt.figure(figsize=(12, 4))
-        global_compliance_value = []
+        with open(f'./temp/data/topopt_2D_0.pkl', 'wb') as f:
+            pickle.dump(self.x, f)
 
         while change > tol:
             iters += 1
@@ -49,6 +53,7 @@ class FEM_TopOpt_Solver_2D:
             xnew = self.optimality_criteria(sensitivity)
 
             change = np.max(np.abs(xnew - xold))
+            # Adaptive move for better convergence
             if change > self.prev_change + 1e-4:
                 print(f'Change is increasing, aborting this iter...')
                 iters -= 1
@@ -60,41 +65,14 @@ class FEM_TopOpt_Solver_2D:
             self.prev_change = change
 
             print(f' Iter: {iters:4} | Volume: {np.sum(self.x) / (self.nx * self.ny):6.3f} | Change: {change:6.3f}')
-
-            # Adaptive move for better convergence
             
-            # Visualization
-            plt.clf()
-            # Plot densities
-            plt.subplot(1, 3, 1)
-            plt.imshow(-self.x, cmap='gray')
-            cbar = plt.colorbar(shrink=0.5)
-            cbar.set_ticks([np.min(-self.x), 0.5*(np.min(-self.x) + np.max(-self.x)), np.max(-self.x)])
-            cbar.set_ticklabels([f'{-tick:.1f}' for tick in cbar.get_ticks()])
-            cbar.ax.invert_yaxis()
-
-            plt.title('Density')
-            plt.axis('equal')
-            plt.axis('off')
-
-            # Plot Local Compliance
-            LC = self.compute_local_compliance(U)
-            plt.subplot(1, 3, 2)
-            plt.imshow(LC, cmap='Reds', norm=LogNorm(vmin=np.min(LC)+1, vmax=np.max(LC)))
-            plt.colorbar(shrink=0.5)
-            plt.title('Local Compliance (Log Scale)')
-            plt.axis('equal')
-            plt.axis('off')
+            with open(f'./temp/data/topopt_2D_{iters}.pkl', 'wb') as f:
+                pickle.dump(self.x, f)
             
-            # Plot Global Compliance
-            global_compliance_value.append(np.sum(U.T @ K @ U))
-            plt.subplot(1, 3, 3)
-            plt.plot(global_compliance_value)
-            plt.yscale('log')
-            plt.title('Global Compliance')
-
-            plt.pause(1e-2)
-        plt.show()
+            if self.max_iter is not None and iters >= self.max_iter:
+                break
+        
+        self._offline_visualize(iters, save_to_gif=True, clear_cache=False)
 
     def fem_solve(self) -> np.ndarray:
         K = sp.lil_matrix((self.total_dofs, self.total_dofs), dtype=np.float64)
@@ -198,17 +176,40 @@ class FEM_TopOpt_Solver_2D:
         self.F = F
         self.freedofs = np.setdiff1d(np.arange(self.total_dofs), bc)
 
+    def _clear_cache(self, iters: int) -> None:
+        for i in range(0, iters + 1):
+            os.remove(f'./temp/data/topopt_2D_{i}.pkl')
+            try:
+                os.remove(f'./temp/pics/topopt_2D_{i}.png')
+            except FileNotFoundError:
+                pass
+    
+    def _offline_visualize(self, frame_nums: int, save_to_gif: bool=True, clear_cache=False) -> None:
+        rhos: List[np.ndarray] = []
+        for i in range(0, frame_nums + 1):
+            with open(f'./temp/data/topopt_2D_{i}.pkl', 'rb') as f:
+                rhos.append(np.load(f, allow_pickle=True))
 
-if __name__ == '__main__':
-    nx = 60
-    ny = 20
-    volfrac = 0.4
-    penal = 3.0
-    rho_min = 0.001
-    radius = 2.
-    E = 1.0
-    nu = 0.3
+        if save_to_gif:
+            frames = []
+            import imageio.v2 as imageio
 
-    fem = FEM_TopOpt_Solver_2D(nx, ny, volfrac, penal, rho_min, radius, E, nu)
-    fem.topopt_solve()
-    # print(fem.KE)
+        plt.figure(figsize=(8, 6))
+        for idx, rho in enumerate(rhos):
+            plt.clf()
+            plt.imshow(-rho, cmap='gray')
+            plt.title(f"Iter: {idx}")
+
+            if save_to_gif:
+                plt.savefig(f'./temp/pics/topopt_2D_{idx}.png')
+                frames.append(imageio.imread(f'./temp/pics/topopt_2D_{idx}.png'))
+                
+            plt.pause(0.1)
+
+        plt.close()
+
+        if save_to_gif:
+            imageio.mimsave('./output/topopt_2D.gif', frames, duration=0.5)
+        
+        if clear_cache:
+            self._clear_cache(frame_nums)

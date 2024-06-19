@@ -96,10 +96,10 @@ def demo_2D_2():
 
 if __name__ == '__main__':
     # 2D demo
-    # demo_2D_1()
+    demo_2D_1()
     # demo_2D_2()
 
     # 3D demo
     # demo_3D_1()
-    demo_3D_2()
+    # demo_3D_2()
     # demo_3D_3()

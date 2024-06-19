@@ -12,7 +12,7 @@ from utils import KE_3D_matrix
 
 class FEM_TopOpt_Solver_3D:
     def __init__(self, nx: int, ny: int, nz: int, volfrac: float, penal: float=3.0, 
-                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, max_iter: int=None, E: float=1.0, nu: float=0.3) -> None:
+                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, max_iter=None, E: float=1.0, nu: float=0.3) -> None:
         self.nx = nx
         self.ny = ny
         self.nz = nz
@@ -74,8 +74,7 @@ class FEM_TopOpt_Solver_3D:
                 break
             
     
-        self._offline_visualize(iters, save_to_gif=True)
-        # self._clear_cache(iters)
+        self._offline_visualize(iters, save_to_gif=True, clear_cache=False)
 
     def fem_solve(self) -> np.ndarray:
 
@@ -260,7 +259,7 @@ class FEM_TopOpt_Solver_3D:
             mask = (rho > self.rho_min)
             z, y, x = np.nonzero(mask)
             ax.scatter(x, y, z, c=-rho[z, y, x], cmap='gray', marker='.', edgecolors='none', alpha=0.5)
-            ax.set_title(f'Iter: {idx+1}')
+            ax.set_title(f'Iter: {idx}')
 
             if save_to_gif:
                 plt.savefig(f'./temp/pics/topopt_3D_{idx}.png')
