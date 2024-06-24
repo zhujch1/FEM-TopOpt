@@ -45,8 +45,7 @@ def demo_3D_2():
 
     solver.set_load_and_bc(load=load, bc=bc)
 
-    # solver.topopt_solve()
-    solver._offline_visualize(50)
+    solver.topopt_solve()
 
 def demo_3D_3():
     nx, ny, nz = 50, 20, 20
@@ -71,7 +70,7 @@ def demo_3D_3():
     solver.topopt_solve()
 
 def demo_2D_1():
-    solver = topopt_2D.FEM_TopOpt_Solver_2D(nx=60, ny=20, volfrac=0.3, penal=3.0, 
+    solver = topopt_2D.FEM_TopOpt_Solver_2D(nx=100, ny=30, volfrac=0.3, penal=3.0, 
                                             rho_min=0.001, filter_radius=1.5, E=1.0, nu=0.3)
     # Use default load and bc
     solver.topopt_solve()

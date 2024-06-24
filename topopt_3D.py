@@ -12,7 +12,8 @@ from utils import KE_3D_matrix
 
 class FEM_TopOpt_Solver_3D:
     def __init__(self, nx: int, ny: int, nz: int, volfrac: float, penal: float=3.0, 
-                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, max_iter=None, E: float=1.0, nu: float=0.3) -> None:
+                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, max_iter=None, E: float=1.0, nu: float=0.3,
+                 temp_dir: str='./temp', output_dir: str='./output', clear_cache: bool=False) -> None:
         self.nx = nx
         self.ny = ny
         self.nz = nz
@@ -33,6 +34,17 @@ class FEM_TopOpt_Solver_3D:
         self._init_load_and_bc()
 
         self.prev_change = 1e9
+
+        self.temp_data_dir = os.path.join(temp_dir, 'data')
+        self.temp_pics_dir = os.path.join(temp_dir, 'pics')
+
+        if not os.path.exists(self.temp_data_dir):
+            os.makedirs(self.temp_data_dir)
+        if not os.path.exists(self.temp_pics_dir):
+            os.makedirs(self.temp_pics_dir)
+
+        self.output_dir = output_dir
+        self.clear_cache = clear_cache
     
     def _index(self, i: int, j: int, k: int) -> int:
         return (i + j * (self.nx + 1) + k * (self.nx + 1) * (self.ny + 1)) * self.dof
@@ -42,7 +54,7 @@ class FEM_TopOpt_Solver_3D:
         change = 1e9
         iters = 0
 
-        with open(f'./temp/data/topopt_3D_0.pkl', 'wb') as f:
+        with open(os.path.join(self.temp_data_dir, 'topopt_3D_0.pkl'), 'wb') as f:
             pickle.dump(self.x, f)
 
         while change > tol:
@@ -67,7 +79,7 @@ class FEM_TopOpt_Solver_3D:
 
             print(f' Iter: {iters:4} | Volume: {np.sum(self.x) / (self.nx * self.ny * self.nz):6.3f} | Change: {change:6.3f}')
 
-            with open(f'./temp/data/topopt_3D_{iters}.pkl', 'wb') as f:
+            with open(os.path.join(self.temp_data_dir, f'topopt_3D_{iters}.pkl'), 'wb') as f:
                 pickle.dump(self.x, f)
             
             if self.max_iter and iters >= self.max_iter:
@@ -231,16 +243,16 @@ class FEM_TopOpt_Solver_3D:
     
     def _clear_cache(self, iters: int) -> None:
         for i in range(0, iters + 1):
-            os.remove(f'./temp/data/topopt_3D_{i}.pkl')
+            os.remove(os.path.join(self.temp_data_dir, f'topopt_3D_{i}.pkl'))
             try:
-                os.remove(f'./temp/pics/topopt_3D_{i}.png')
+                os.remove(os.path.join(self.temp_pics_dir, f'topopt_3D_{i}.png'))
             except FileNotFoundError:
                 pass
     
     def _offline_visualize(self, frame_nums: int, save_to_gif: bool=True, clear_cache=False) -> None:
         rhos: List[np.ndarray] = []
         for i in range(0, frame_nums + 1):
-            with open(f'./temp/data/topopt_3D_{i}.pkl', 'rb') as f:
+            with open(os.path.join(self.temp_data_dir, f'topopt_3D_{i}.pkl'), 'rb') as f:
                 rhos.append(np.load(f, allow_pickle=True))
         
         fig = plt.figure()
@@ -262,15 +274,15 @@ class FEM_TopOpt_Solver_3D:
             ax.set_title(f'Iter: {idx}')
 
             if save_to_gif:
-                plt.savefig(f'./temp/pics/topopt_3D_{idx}.png')
-                frames.append(imageio.imread(f'./temp/pics/topopt_3D_{idx}.png'))
+                plt.savefig(os.path.join(self.temp_pics_dir, f'topopt_3D_{idx}.png'))
+                frames.append(imageio.imread(os.path.join(self.temp_pics_dir, f'topopt_3D_{idx}.png')))
                 
             plt.pause(0.1)
 
         plt.close()
 
         if save_to_gif:
-            imageio.mimsave('./output/topopt_3D.gif', frames, duration=0.5)
+            imageio.mimsave(os.path.join(self.output_dir, 'topopt_3D.gif'), frames, duration=0.5)
         
         if clear_cache:
             self._clear_cache(frame_nums)

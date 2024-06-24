@@ -11,7 +11,8 @@ from utils import KE_2D_matrix
 
 class FEM_TopOpt_Solver_2D:
     def __init__(self, nx: int, ny: int, volfrac: float, penal: float=3.0, 
-                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, max_iter=None, E: float=1.0, nu: float=0.3):
+                 rho_min: float=0.001, filter_radius: float=1.5, move: float=0.2, max_iter=None, E: float=1.0, nu: float=0.3,
+                 temp_dir: str='./temp', output_dir: str='./output', clear_cache: bool=False):
         self.nx = nx
         self.ny = ny
         self.volfrac = volfrac
@@ -32,6 +33,17 @@ class FEM_TopOpt_Solver_2D:
         self._init_load_and_bc()
 
         self.prev_change = 1e9
+        
+        self.temp_data_dir = os.path.join(temp_dir, 'data')
+        self.temp_pics_dir = os.path.join(temp_dir, 'pics')
+
+        if not os.path.exists(self.temp_data_dir):
+            os.makedirs(self.temp_data_dir)
+        if not os.path.exists(self.temp_pics_dir):
+            os.makedirs(self.temp_pics_dir)
+
+        self.output_dir = output_dir
+        self.clear_cache = clear_cache
     
     def _index(self, i: int, j: int) -> int:
         return (i + j * (self.nx + 1)) * 2
@@ -41,7 +53,7 @@ class FEM_TopOpt_Solver_2D:
         change = 1e9
         iters = 0
 
-        with open(f'./temp/data/topopt_2D_0.pkl', 'wb') as f:
+        with open(os.path.join(self.temp_data_dir, 'topopt_2D_0.pkl'), 'wb') as f:
             pickle.dump(self.x, f)
 
         while change > tol:
@@ -66,13 +78,13 @@ class FEM_TopOpt_Solver_2D:
 
             print(f' Iter: {iters:4} | Volume: {np.sum(self.x) / (self.nx * self.ny):6.3f} | Change: {change:6.3f}')
             
-            with open(f'./temp/data/topopt_2D_{iters}.pkl', 'wb') as f:
+            with open(os.path.join(self.temp_data_dir, f'topopt_2D_{iters}.pkl'), 'wb') as f:
                 pickle.dump(self.x, f)
             
             if self.max_iter is not None and iters >= self.max_iter:
                 break
         
-        self._offline_visualize(iters, save_to_gif=True, clear_cache=False)
+        self._offline_visualize(iters, save_to_gif=True, clear_cache=self.clear_cache)
 
     def fem_solve(self) -> np.ndarray:
         K = sp.lil_matrix((self.total_dofs, self.total_dofs), dtype=np.float64)
@@ -178,16 +190,16 @@ class FEM_TopOpt_Solver_2D:
 
     def _clear_cache(self, iters: int) -> None:
         for i in range(0, iters + 1):
-            os.remove(f'./temp/data/topopt_2D_{i}.pkl')
+            os.remove(os.path.join(self.temp_data_dir, f'topopt_2D_{i}.pkl'))
             try:
-                os.remove(f'./temp/pics/topopt_2D_{i}.png')
+                os.remove(os.path.join(self.temp_pics_dir, f'topopt_2D_{i}.png'))
             except FileNotFoundError:
                 pass
     
     def _offline_visualize(self, frame_nums: int, save_to_gif: bool=True, clear_cache=False) -> None:
         rhos: List[np.ndarray] = []
         for i in range(0, frame_nums + 1):
-            with open(f'./temp/data/topopt_2D_{i}.pkl', 'rb') as f:
+            with open(os.path.join(self.temp_data_dir, f'topopt_2D_{i}.pkl'), 'rb') as f:
                 rhos.append(np.load(f, allow_pickle=True))
 
         if save_to_gif:
@@ -201,15 +213,15 @@ class FEM_TopOpt_Solver_2D:
             plt.title(f"Iter: {idx}")
 
             if save_to_gif:
-                plt.savefig(f'./temp/pics/topopt_2D_{idx}.png')
-                frames.append(imageio.imread(f'./temp/pics/topopt_2D_{idx}.png'))
+                plt.savefig(os.path.join(self.temp_pics_dir, f'topopt_2D_{idx}.png'))
+                frames.append(imageio.imread(os.path.join(self.temp_pics_dir, f'topopt_2D_{idx}.png')))
                 
             plt.pause(0.1)
 
         plt.close()
 
         if save_to_gif:
-            imageio.mimsave('./output/topopt_2D.gif', frames, duration=0.5)
+            imageio.mimsave(os.path.join(self.output_dir, 'topopt_2D.gif'), frames, duration=0.5)
         
         if clear_cache:
             self._clear_cache(frame_nums)
